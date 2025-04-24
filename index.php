@@ -1,0 +1,143 @@
+<?php
+
+Kirby::plugin('cedricaellen/handle', [
+  'options' => [
+    'services' => [
+      'bsky.app' => [
+        'urlPrefix' => 'https://bsky.app/profile/',
+        'urlSuffix' => '',
+        'class' => 'bsky-link',
+        'displayUsername' => true // Display only @username instead of @username@instance
+      ],
+      'flickr.com' => [
+        'urlPrefix' => 'https://flickr.com/photos/',
+        'urlSuffix' => '',
+        'class' => 'flickr-link',
+        'displayUsername' => true
+      ],
+      'github.com' => [
+        'urlPrefix' => 'https://github.com/',
+        'urlSuffix' => '',
+        'class' => 'github-link',
+        'displayUsername' => true
+      ],
+      'instagram.com' => [
+        'urlPrefix' => 'https://instagram.com/',
+        'urlSuffix' => '',
+        'class' => 'instagram-link',
+        'displayUsername' => true
+      ],
+      'linkedin.com' => [
+        'urlPrefix' => 'https://linkedin.com/in/',
+        'urlSuffix' => '',
+        'class' => 'linkedin-link',
+        'displayUsername' => true
+      ],
+      'micro.blog' => [
+        'urlPrefix' => 'https://micro.blog/',
+        'urlSuffix' => '',
+        'class' => 'microblog-link',
+        'displayUsername' => true
+      ],
+      'reddit.com' => [
+        'urlPrefix' => 'https://reddit.com/user/',
+        'urlSuffix' => '',
+        'class' => 'reddit-link',
+        'displayUsername' => true
+      ],
+      'youtube.com' => [
+        'urlPrefix' => 'https://youtube.com/',
+        'urlSuffix' => '',
+        'class' => 'youtube-link',
+        'displayUsername' => true
+      ],
+      'vimeo.com' => [
+        'urlPrefix' => 'https://vimeo.com/',
+        'urlSuffix' => '',
+        'class' => 'vimeo-link',
+        'displayUsername' => true
+      ],
+    ]
+  ],
+  'fieldMethods' => [
+    'handleLinks' => function($field) {
+      $text = $field->value();
+      $services = option('cedricaellen.handle.services');
+      
+      // Processing for specific services
+      foreach ($services as $domain => $config) {
+        $pattern = '/@([a-zA-Z0-9_.-]+)@' . str_replace('.', '\.', $domain) . '/';
+        
+        $displayText = isset($config['displayUsername']) && $config['displayUsername'] 
+          ? '@$1' 
+          : '@$1@' . $domain;
+          
+        $replacement = '<a href="' . $config['urlPrefix'] . '$1' . $config['urlSuffix'] . '" ' .
+                      'title="@$1\'s profil on ' . $domain . '" ' .
+                      'class="handle-link ' . $config['class'] . '">' . 
+                      $displayText . '</a>';
+                      
+        $text = preg_replace($pattern, $replacement, $text);
+      }
+      
+      // Generic processing for Fediverse instances (Mastodon, etc.)
+      $text = preg_replace(
+        '/@([a-zA-Z0-9_]+)@([a-zA-Z0-9.\-]+)/',
+        '<a href="https://$2/@$1" title="@$1\'s profil on $2" class="handle-link fediverse-link">@$1</a>',
+        $text
+      );
+      
+      return $text;
+    }
+  ],
+  'hooks' => [
+    'kirbytags:after' => function($text) {
+      $field = new Kirby\Content\Field(null, 'text', $text);
+      return $field->handleLinks();
+    }
+  ],
+  'tags' => [
+    'handle' => [
+      'attr' => [
+        'user',
+        'instance'
+      ],
+      'html' => function($tag) {
+        $user = $tag->attr('user');
+        $instance = $tag->attr('instance');
+        
+        if (!$user || !$instance) {
+          // If the format is @user@instance in the content
+          $content = $tag->value;
+          if (preg_match('/@([a-zA-Z0-9_.-]+)@([a-zA-Z0-9.\-]+)/', $content, $matches)) {
+            $user = $matches[1];
+            $instance = $matches[2];
+          } else {
+            return $content;
+          }
+        }
+        
+        $services = option('cedricaellen.handle.services');
+        
+        // Check if instance is in configured services
+        if (isset($services[$instance])) {
+          $config = $services[$instance];
+          
+          $displayText = isset($config['displayUsername']) && $config['displayUsername'] 
+            ? '@' . $user 
+            : '@' . $user . '@' . $instance;
+            
+          return '<a href="' . $config['urlPrefix'] . $user . $config['urlSuffix'] . '" ' .
+                 'title="@' . $user . '\'s profil on ' . $instance . '" ' .
+                 'class="handle-link ' . $config['class'] . '">' . 
+                 $displayText . '</a>';
+        } else {
+          // Cas par défaut pour Fediverse
+          return '<a href="https://' . $instance . '/@' . $user . '" ' .
+                 'title="@' . $user . '\'s profil on ' . $instance . '" ' .
+                 'class="handle-link fediverse-link">@' . $user . '</a>';
+        }
+      }
+    ]
+  ]
+]);

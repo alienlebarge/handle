@@ -1,0 +1,16 @@
+{
+    "name": "alienlebarge/handle",
+    "description": "A Kirby plugin that automatically transforms social handles into links to their profiles",
+    "license": "MIT",
+    "type": "kirby-plugin",
+    "version": "0.0.1",
+    "authors": [
+        {
+            "name": "Cédric Aellen",
+            "email": "cedric.aellen@alienelbarge.ch"
+        }
+    ],
+    "require": {
+        "getkirby/composer-installer": "^1.1"
+    }
+}
