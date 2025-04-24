@@ -1,6 +1,6 @@
 <?php
 
-Kirby::plugin('cedricaellen/handle', [
+Kirby::plugin('alienlebarge/handle', [
   'options' => [
     'services' => [
       'bsky.app' => [
@@ -62,7 +62,7 @@ Kirby::plugin('cedricaellen/handle', [
   'fieldMethods' => [
     'handleLinks' => function($field) {
       $text = $field->value();
-      $services = option('cedricaellen.handle.services');
+      $services = option('alienlebarge.handle.services');
       
       // Processing for specific services
       foreach ($services as $domain => $config) {
@@ -117,7 +117,7 @@ Kirby::plugin('cedricaellen/handle', [
           }
         }
         
-        $services = option('cedricaellen.handle.services');
+        $services = option('alienlebarge.handle.services');
         
         // Check if instance is in configured services
         if (isset($services[$instance])) {
