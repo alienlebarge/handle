@@ -64,7 +64,15 @@ Kirby::plugin('alienlebarge/handle', [
       $text = $field->value();
       $services = option('alienlebarge.handle.services');
       
-      // Processing for specific services
+      // D'abord, protéger le contenu des balises code
+      $protected = [];
+      $text = preg_replace_callback('/<code>(.*?)<\/code>/s', function($matches) use (&$protected) {
+        $key = '###PROTECTED_' . count($protected) . '###';
+        $protected[$key] = $matches[0];
+        return $key;
+      }, $text);
+      
+      // Ensuite, appliquer les transformations
       foreach ($services as $domain => $config) {
         $pattern = '/@([a-zA-Z0-9_.-]+)@' . str_replace('.', '\.', $domain) . '/';
         
@@ -87,13 +95,54 @@ Kirby::plugin('alienlebarge/handle', [
         $text
       );
       
+      // Enfin, restaurer le contenu protégé
+      foreach ($protected as $key => $value) {
+        $text = str_replace($key, $value, $text);
+      }
+      
       return $text;
     }
   ],
   'hooks' => [
-    'kirbytags:after' => function($text) {
-      $field = new Kirby\Content\Field(null, 'text', $text);
-      return $field->handleLinks();
+    'kirbytext:before' => function($text) {
+      // Protéger le contenu entre backticks avant toute transformation
+      $protected = [];
+      $text = preg_replace_callback('/`([^`]*)`/', function($matches) use (&$protected) {
+        $key = '###PROTECTED_' . count($protected) . '###';
+        $protected[$key] = $matches[0];
+        return $key;
+      }, $text);
+
+      // Appliquer les transformations
+      $services = option('alienlebarge.handle.services');
+      foreach ($services as $domain => $config) {
+        $pattern = '/@([a-zA-Z0-9_.-]+)@' . str_replace('.', '\.', $domain) . '/';
+        
+        $displayText = isset($config['displayUsername']) && $config['displayUsername'] 
+          ? '@$1' 
+          : '@$1@' . $domain;
+          
+        $replacement = '<a href="' . $config['urlPrefix'] . '$1' . $config['urlSuffix'] . '" ' .
+                      'title="@$1\'s profil on ' . $domain . '" ' .
+                      'class="handle-link ' . $config['class'] . '">' . 
+                      $displayText . '</a>';
+                      
+        $text = preg_replace($pattern, $replacement, $text);
+      }
+      
+      // Generic processing for Fediverse instances (Mastodon, etc.)
+      $text = preg_replace(
+        '/@([a-zA-Z0-9_]+)@([a-zA-Z0-9.\-]+)/',
+        '<a href="https://$2/@$1" title="@$1\'s profil on $2" class="handle-link fediverse-link">@$1</a>',
+        $text
+      );
+
+      // Restaurer le contenu protégé
+      foreach ($protected as $key => $value) {
+        $text = str_replace($key, $value, $text);
+      }
+
+      return $text;
     }
   ],
   'tags' => [

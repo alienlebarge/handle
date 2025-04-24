@@ -80,28 +80,44 @@ class HandleTest extends TestCase
     {
         $result = $text;
         
-        // Processing for specific services
-        foreach ($this->services as $domain => $config) {
-            $pattern = '/@([a-zA-Z0-9_.-]+)@' . str_replace('.', '\.', $domain) . '/';
-            
-            $displayText = isset($config['displayUsername']) && $config['displayUsername'] 
-                ? '@$1' 
-                : '@$1@' . $domain;
-                
-            $replacement = '<a href="' . $config['urlPrefix'] . '$1' . $config['urlSuffix'] . '" ' .
-                          'title="@$1\'s profil on ' . $domain . '" ' .
-                          'class="handle-link ' . $config['class'] . '">' . 
-                          $displayText . '</a>';
-                          
-            $result = preg_replace($pattern, $replacement, $result);
-        }
+        // Ignorer le texte entre backticks
+        $parts = preg_split('/(`[^`]*`)/', $result, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY);
+        $result = '';
         
-        // Generic processing for Fediverse instances (Mastodon, etc.)
-        $result = preg_replace(
-            '/@([a-zA-Z0-9_]+)@([a-zA-Z0-9.\-]+)/',
-            '<a href="https://$2/@$1" title="@$1\'s profil on $2" class="handle-link fediverse-link">@$1</a>',
-            $result
-        );
+        foreach ($parts as $part) {
+            if (strpos($part, '`') === 0) {
+                // Si la partie commence par un backtick, la laisser inchangée
+                $result .= $part;
+            } else {
+                // Sinon, appliquer les transformations
+                $transformedPart = $part;
+                
+                // Processing for specific services
+                foreach ($this->services as $domain => $config) {
+                    $pattern = '/@([a-zA-Z0-9_.-]+)@' . str_replace('.', '\.', $domain) . '/';
+                    
+                    $displayText = isset($config['displayUsername']) && $config['displayUsername'] 
+                        ? '@$1' 
+                        : '@$1@' . $domain;
+                        
+                    $replacement = '<a href="' . $config['urlPrefix'] . '$1' . $config['urlSuffix'] . '" ' .
+                                  'title="@$1\'s profil on ' . $domain . '" ' .
+                                  'class="handle-link ' . $config['class'] . '">' . 
+                                  $displayText . '</a>';
+                                  
+                    $transformedPart = preg_replace($pattern, $replacement, $transformedPart);
+                }
+                
+                // Generic processing for Fediverse instances (Mastodon, etc.)
+                $transformedPart = preg_replace(
+                    '/@([a-zA-Z0-9_]+)@([a-zA-Z0-9.\-]+)/',
+                    '<a href="https://$2/@$1" title="@$1\'s profil on $2" class="handle-link fediverse-link">@$1</a>',
+                    $transformedPart
+                );
+                
+                $result .= $transformedPart;
+            }
+        }
         
         return $result;
     }
@@ -241,5 +257,43 @@ class HandleTest extends TestCase
         $result = $this->transformHandle($text);
         $expected = '<a href="https://social.lol/@alien-lebarge" title="@alien-lebarge\'s profil on social.lol" class="handle-link fediverse-link">@alien-lebarge</a>';
         $this->assertEquals($expected, $result);
+    }
+
+    public function testHandleInCodeBlock()
+    {
+        $text = '`@alienlebarge@mastodon.social`';
+        $result = $this->transformHandle($text);
+        $this->assertEquals($text, $result);
+    }
+
+    public function testMultipleHandlesWithCodeBlock()
+    {
+        $text = "Voici mes handles: @alienlebarge@bsky.app, `@alienlebarge@mastodon.social` et @alienlebarge@social.lol";
+        $result = $this->transformHandle($text);
+        
+        $this->assertStringContainsString('href="https://bsky.app/profile/alienlebarge"', $result);
+        $this->assertStringContainsString('`@alienlebarge@mastodon.social`', $result);
+        $this->assertStringContainsString('href="https://social.lol/@alienlebarge"', $result);
+    }
+
+    public function testMultipleCodeBlocks()
+    {
+        $text = "Voici mes handles: `@alienlebarge@mastodon.social` et `@alienlebarge@bsky.app`";
+        $result = $this->transformHandle($text);
+        $this->assertEquals($text, $result);
+    }
+
+    public function testCodeBlockWithSpecialCharacters()
+    {
+        $text = '`@alien-lebarge@mastodon.social`';
+        $result = $this->transformHandle($text);
+        $this->assertEquals($text, $result);
+    }
+
+    public function testCodeBlockWithMultipleHandles()
+    {
+        $text = '`@alienlebarge@mastodon.social @alienlebarge@bsky.app`';
+        $result = $this->transformHandle($text);
+        $this->assertEquals($text, $result);
     }
 } 
