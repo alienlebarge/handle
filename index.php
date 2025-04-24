@@ -105,10 +105,24 @@ Kirby::plugin('alienlebarge/handle', [
   ],
   'hooks' => [
     'kirbytext:before' => function($text) {
+      // Vérifier que $text n'est pas null
+      if ($text === null) {
+        return '';
+      }
+      
       // Protéger le contenu entre backticks avant toute transformation
       $protected = [];
+      
+      // Protéger les blocs de code avec trois backticks
+      $text = preg_replace_callback('/```(?:[a-z]*\n)?(.*?)```/s', function($matches) use (&$protected) {
+        $key = '###PROTECTED_TRIPLE_' . count($protected) . '###';
+        $protected[$key] = $matches[0];
+        return $key;
+      }, $text);
+      
+      // Protéger le contenu entre backticks simples
       $text = preg_replace_callback('/`([^`]*)`/', function($matches) use (&$protected) {
-        $key = '###PROTECTED_' . count($protected) . '###';
+        $key = '###PROTECTED_SINGLE_' . count($protected) . '###';
         $protected[$key] = $matches[0];
         return $key;
       }, $text);
