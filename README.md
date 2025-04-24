@@ -13,6 +13,11 @@ Download and place this plugin in `/site/plugins/handle`.
 ```
 composer require alienlebarge/handle
 ```
+### Git
+
+```
+git submodule add https://github.com/alienlebarge/handle.git site/plugins/handle
+```
 
 ## Usage
 
