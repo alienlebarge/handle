@@ -36,19 +36,55 @@ function restoreProtectedContent(string $text, array $protected): string {
   return $text;
 }
 
+function getPluginOptions(): array {
+  return [
+    'enabled' => option('alienlebarge.handle.enabled', true),
+    'maxTextLength' => option('alienlebarge.handle.maxTextLength', 100000),
+    'logErrors' => option('alienlebarge.handle.logErrors', true),
+    'enableFediverse' => option('alienlebarge.handle.enableFediverse', true),
+    'services' => option('alienlebarge.handle.services', [])
+  ];
+}
+
+function logError(string $message): void {
+  $options = getPluginOptions();
+  if ($options['logErrors']) {
+    error_log("Handle plugin: {$message}");
+  }
+}
+
 function validateServiceConfig(array $config, string $service): bool {
   $required = ['urlPrefix', 'class'];
   
+  // Check if service is disabled
+  if (isset($config['enabled']) && !$config['enabled']) {
+    return false;
+  }
+  
   foreach ($required as $field) {
     if (!isset($config[$field]) || !is_string($config[$field]) || empty(trim($config[$field]))) {
-      error_log("Handle plugin: Invalid {$field} for service {$service}");
+      logError("Invalid {$field} for service {$service}");
       return false;
     }
   }
   
-  // Validate URL format
-  if (!filter_var($config['urlPrefix'] . 'test', FILTER_VALIDATE_URL)) {
-    error_log("Handle plugin: Invalid URL format for service {$service}");
+  // Enhanced URL validation
+  $testUrl = $config['urlPrefix'] . 'test' . ($config['urlSuffix'] ?? '');
+  if (!filter_var($testUrl, FILTER_VALIDATE_URL)) {
+    logError("Invalid URL format for service {$service}: {$testUrl}");
+    return false;
+  }
+  
+  // Validate URL scheme (must be https or http)
+  $parsedUrl = parse_url($config['urlPrefix']);
+  if (!isset($parsedUrl['scheme']) || !in_array($parsedUrl['scheme'], ['http', 'https'])) {
+    logError("Invalid URL scheme for service {$service}. Only http and https are allowed.");
+    return false;
+  }
+  
+  // Validate class name (CSS class format)
+  if (!preg_match('/^[a-zA-Z][a-zA-Z0-9\-_]*$/', $config['class'])) {
+    logError("Invalid CSS class format for service {$service}: {$config['class']}");
     return false;
   }
   
@@ -78,11 +114,12 @@ function isValidHandle(string $user, string $instance): bool {
 function createHandleLink(string $user, string $instance): string {
   // Validate input
   if (!isValidHandle($user, $instance)) {
-    error_log("Handle plugin: Invalid handle format @{$user}@{$instance}");
+    logError("Invalid handle format @{$user}@{$instance}");
     return '@' . htmlspecialchars($user, ENT_QUOTES, 'UTF-8') . '@' . htmlspecialchars($instance, ENT_QUOTES, 'UTF-8');
   }
   
-  $services = option('alienlebarge.handle.services', []);
+  $options = getPluginOptions();
+  $services = $options['services'];
   
   // Check if instance is in configured services
   if (isset($services[$instance])) {
@@ -121,7 +158,8 @@ function createGenericFediverseLink(string $user, string $instance): string {
 }
 
 function transformHandles(string $text): string {
-  $services = option('alienlebarge.handle.services', []);
+  $options = getPluginOptions();
+  $services = $options['services'];
   
   // Early return for empty text or no services
   if (empty($text) || empty($services)) {
@@ -136,7 +174,7 @@ function transformHandles(string $text): string {
   // Process specific services first - with Unicode support
   foreach ($services as $domain => $config) {
     if (!validateServiceConfig($config, $domain)) {
-      continue; // Skip invalid configurations
+      continue; // Skip invalid or disabled configurations
     }
     
     $pattern = '/@([\p{L}\p{N}_.-]+)@' . str_replace('.', '\.', $domain) . '/u';
@@ -165,30 +203,39 @@ function transformHandles(string $text): string {
   }
   
   // Generic processing for Fediverse instances - with Unicode support
-  $text = preg_replace_callback(
-    '/@([\p{L}\p{N}_]+)@([\p{L}\p{N}.\-]+)/u',
-    function($matches) {
-      $user = $matches[1];
-      $instance = $matches[2];
-      
-      // Validate handle before processing
-      if (!isValidHandle($user, $instance)) {
-        return $matches[0]; // Return original if invalid
-      }
-      
-      return createGenericFediverseLink($user, $instance);
-    },
-    $text
-  );
+  if ($options['enableFediverse']) {
+    $text = preg_replace_callback(
+      '/@([\p{L}\p{N}_]+)@([\p{L}\p{N}.\-]+)/u',
+      function($matches) {
+        $user = $matches[1];
+        $instance = $matches[2];
+        
+        // Validate handle before processing
+        if (!isValidHandle($user, $instance)) {
+          return $matches[0]; // Return original if invalid
+        }
+        
+        return createGenericFediverseLink($user, $instance);
+      },
+      $text
+    );
+  }
   
   return $text;
 }
 
 function processHandleText(string $text): string {
+  $options = getPluginOptions();
+  
+  // Check if plugin is enabled
+  if (!$options['enabled']) {
+    return $text;
+  }
+  
   // Early performance checks
-  if (empty($text) || strlen($text) > 100000) {
-    if (strlen($text) > 100000) {
-      error_log("Handle plugin: Text too large (" . strlen($text) . " chars), skipping processing");
+  if (empty($text) || strlen($text) > $options['maxTextLength']) {
+    if (strlen($text) > $options['maxTextLength']) {
+      logError("Text too large (" . strlen($text) . " chars), skipping processing");
     }
     return $text;
   }
@@ -214,60 +261,85 @@ function processHandleText(string $text): string {
 
 return [
   'options' => [
-    'services' => [
+    // Global plugin settings
+    'alienlebarge.handle.enabled' => true,
+    'alienlebarge.handle.maxTextLength' => 100000,
+    'alienlebarge.handle.logErrors' => true,
+    'alienlebarge.handle.enableFediverse' => true,
+    
+    // Default service configurations
+    'alienlebarge.handle.services' => [
       'bsky.app' => [
+        'enabled' => true,
         'urlPrefix' => 'https://bsky.app/profile/',
         'urlSuffix' => '',
         'class' => 'bsky-link',
-        'displayUsername' => true // Display only @username instead of @username@instance
+        'displayUsername' => true,
+        'name' => 'Bluesky'
       ],
       'flickr.com' => [
+        'enabled' => true,
         'urlPrefix' => 'https://flickr.com/photos/',
         'urlSuffix' => '',
         'class' => 'flickr-link',
-        'displayUsername' => true
+        'displayUsername' => true,
+        'name' => 'Flickr'
       ],
       'github.com' => [
+        'enabled' => true,
         'urlPrefix' => 'https://github.com/',
         'urlSuffix' => '',
         'class' => 'github-link',
-        'displayUsername' => true
+        'displayUsername' => true,
+        'name' => 'GitHub'
       ],
       'instagram.com' => [
+        'enabled' => true,
         'urlPrefix' => 'https://instagram.com/',
         'urlSuffix' => '',
         'class' => 'instagram-link',
-        'displayUsername' => true
+        'displayUsername' => true,
+        'name' => 'Instagram'
       ],
       'linkedin.com' => [
+        'enabled' => true,
         'urlPrefix' => 'https://linkedin.com/in/',
         'urlSuffix' => '',
         'class' => 'linkedin-link',
-        'displayUsername' => true
+        'displayUsername' => true,
+        'name' => 'LinkedIn'
       ],
       'micro.blog' => [
+        'enabled' => true,
         'urlPrefix' => 'https://micro.blog/',
         'urlSuffix' => '',
         'class' => 'microblog-link',
-        'displayUsername' => true
+        'displayUsername' => true,
+        'name' => 'Micro.blog'
       ],
       'reddit.com' => [
+        'enabled' => true,
         'urlPrefix' => 'https://reddit.com/user/',
         'urlSuffix' => '',
         'class' => 'reddit-link',
-        'displayUsername' => true
+        'displayUsername' => true,
+        'name' => 'Reddit'
       ],
       'youtube.com' => [
+        'enabled' => true,
         'urlPrefix' => 'https://youtube.com/',
         'urlSuffix' => '',
         'class' => 'youtube-link',
-        'displayUsername' => true
+        'displayUsername' => true,
+        'name' => 'YouTube'
       ],
       'vimeo.com' => [
+        'enabled' => true,
         'urlPrefix' => 'https://vimeo.com/',
         'urlSuffix' => '',
         'class' => 'vimeo-link',
-        'displayUsername' => true
+        'displayUsername' => true,
+        'name' => 'Vimeo'
       ],
     ]
   ],
