@@ -1,6 +1,10 @@
 <?php
 
-Kirby::plugin('alienlebarge/handle', [
+use Kirby\Cms\App;
+use Kirby\Cms\Field;
+use Kirby\Cms\Page;
+
+return [
   'options' => [
     'services' => [
       'bsky.app' => [
@@ -60,7 +64,7 @@ Kirby::plugin('alienlebarge/handle', [
     ]
   ],
   'fieldMethods' => [
-    'handleLinks' => function($field) {
+    'handleLinks' => function(Field $field): string {
       $text = $field->value();
       $services = option('alienlebarge.handle.services');
       
@@ -104,9 +108,9 @@ Kirby::plugin('alienlebarge/handle', [
     }
   ],
   'hooks' => [
-    'kirbytext:before' => function($text) {
-      // Vérifier que $text n'est pas null
-      if ($text === null) {
+    'kirbytext:before' => function(string|null $text): string {
+      // Vérifier que $text n'est pas null et est une chaîne
+      if ($text === null || !is_string($text)) {
         return '';
       }
       
@@ -165,7 +169,7 @@ Kirby::plugin('alienlebarge/handle', [
         'user',
         'instance'
       ],
-      'html' => function($tag) {
+      'html' => function($tag): string {
         $user = $tag->attr('user');
         $instance = $tag->attr('instance');
         
@@ -203,4 +207,4 @@ Kirby::plugin('alienlebarge/handle', [
       }
     ]
   ]
-]);
+];
