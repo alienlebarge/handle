@@ -3,7 +3,7 @@
   "description": "A Kirby plugin that automatically transforms social handles into links to their profiles",
   "license": "MIT",
   "type": "kirby-plugin",
-  "version": "0.0.4-alpha.2",
+  "version": "0.0.4-alpha.3",
   "authors": [
     {
       "name": "Cédric Aellen",
