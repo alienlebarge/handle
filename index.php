@@ -36,52 +36,148 @@ function restoreProtectedContent(string $text, array $protected): string {
   return $text;
 }
 
+function validateServiceConfig(array $config, string $service): bool {
+  $required = ['urlPrefix', 'class'];
+  
+  foreach ($required as $field) {
+    if (!isset($config[$field]) || !is_string($config[$field]) || empty(trim($config[$field]))) {
+      error_log("Handle plugin: Invalid {$field} for service {$service}");
+      return false;
+    }
+  }
+  
+  // Validate URL format
+  if (!filter_var($config['urlPrefix'] . 'test', FILTER_VALIDATE_URL)) {
+    error_log("Handle plugin: Invalid URL format for service {$service}");
+    return false;
+  }
+  
+  return true;
+}
+
+function sanitizeHandleInput(string $input): string {
+  // Remove potentially dangerous characters while preserving Unicode
+  $sanitized = preg_replace('/[<>"\']/', '', $input);
+  return htmlspecialchars($sanitized, ENT_QUOTES, 'UTF-8');
+}
+
+function isValidHandle(string $user, string $instance): bool {
+  // Allow Unicode letters, numbers, underscore, dot, hyphen
+  if (!preg_match('/^[\p{L}\p{N}_.-]+$/u', $user) || strlen($user) > 64) {
+    return false;
+  }
+  
+  // Validate domain format with Unicode support
+  if (!preg_match('/^[\p{L}\p{N}.-]+$/u', $instance) || strlen($instance) > 253) {
+    return false;
+  }
+  
+  return true;
+}
+
 function createHandleLink(string $user, string $instance): string {
-  $services = option('alienlebarge.handle.services');
+  // Validate input
+  if (!isValidHandle($user, $instance)) {
+    error_log("Handle plugin: Invalid handle format @{$user}@{$instance}");
+    return '@' . htmlspecialchars($user, ENT_QUOTES, 'UTF-8') . '@' . htmlspecialchars($instance, ENT_QUOTES, 'UTF-8');
+  }
+  
+  $services = option('alienlebarge.handle.services', []);
   
   // Check if instance is in configured services
   if (isset($services[$instance])) {
     $config = $services[$instance];
     
+    // Validate service configuration
+    if (!validateServiceConfig($config, $instance)) {
+      // Fallback to generic Fediverse
+      return createGenericFediverseLink($user, $instance);
+    }
+    
     $displayText = isset($config['displayUsername']) && $config['displayUsername'] 
       ? '@' . $user 
       : '@' . $user . '@' . $instance;
       
-    return '<a href="' . $config['urlPrefix'] . $user . $config['urlSuffix'] . '" ' .
-           'title="@' . $user . '\'s profile on ' . $instance . '" ' .
-           'class="handle-link ' . $config['class'] . '">' . 
-           $displayText . '</a>';
+    $safeUser = sanitizeHandleInput($user);
+    $safeInstance = sanitizeHandleInput($instance);
+    $safeDisplayText = sanitizeHandleInput($displayText);
+    
+    return '<a href="' . htmlspecialchars($config['urlPrefix'] . $user . ($config['urlSuffix'] ?? ''), ENT_QUOTES, 'UTF-8') . '" ' .
+           'title="@' . $safeUser . '\'s profile on ' . $safeInstance . '" ' .
+           'class="handle-link ' . htmlspecialchars($config['class'], ENT_QUOTES, 'UTF-8') . '">' . 
+           $safeDisplayText . '</a>';
   } else {
-    // Generic Fediverse fallback
-    return '<a href="https://' . $instance . '/@' . $user . '" ' .
-           'title="@' . $user . '\'s profile on ' . $instance . '" ' .
-           'class="handle-link fediverse-link">@' . $user . '</a>';
+    return createGenericFediverseLink($user, $instance);
   }
 }
 
-function transformHandles(string $text): string {
-  $services = option('alienlebarge.handle.services');
+function createGenericFediverseLink(string $user, string $instance): string {
+  $safeUser = sanitizeHandleInput($user);
+  $safeInstance = sanitizeHandleInput($instance);
   
-  // Process specific services first
-  foreach ($services as $domain => $config) {
-    $pattern = '/@([a-zA-Z0-9_.-]+)@' . str_replace('.', '\.', $domain) . '/';
-    
-    $displayText = isset($config['displayUsername']) && $config['displayUsername'] 
-      ? '@$1' 
-      : '@$1@' . $domain;
-      
-    $replacement = '<a href="' . $config['urlPrefix'] . '$1' . $config['urlSuffix'] . '" ' .
-                  'title="@$1\'s profile on ' . $domain . '" ' .
-                  'class="handle-link ' . $config['class'] . '">' . 
-                  $displayText . '</a>';
-                  
-    $text = preg_replace($pattern, $replacement, $text);
+  return '<a href="https://' . htmlspecialchars($instance, ENT_QUOTES, 'UTF-8') . '/@' . htmlspecialchars($user, ENT_QUOTES, 'UTF-8') . '" ' .
+         'title="@' . $safeUser . '\'s profile on ' . $safeInstance . '" ' .
+         'class="handle-link fediverse-link">@' . $safeUser . '</a>';
+}
+
+function transformHandles(string $text): string {
+  $services = option('alienlebarge.handle.services', []);
+  
+  // Early return for empty text or no services
+  if (empty($text) || empty($services)) {
+    return $text;
   }
   
-  // Generic processing for Fediverse instances
-  $text = preg_replace(
-    '/@([a-zA-Z0-9_]+)@([a-zA-Z0-9.\-]+)/',
-    '<a href="https://$2/@$1" title="@$1\'s profile on $2" class="handle-link fediverse-link">@$1</a>',
+  // Performance optimization: only process if text contains @ symbols
+  if (strpos($text, '@') === false) {
+    return $text;
+  }
+  
+  // Process specific services first - with Unicode support
+  foreach ($services as $domain => $config) {
+    if (!validateServiceConfig($config, $domain)) {
+      continue; // Skip invalid configurations
+    }
+    
+    $pattern = '/@([\p{L}\p{N}_.-]+)@' . str_replace('.', '\.', $domain) . '/u';
+    
+    $text = preg_replace_callback($pattern, function($matches) use ($config, $domain) {
+      $user = $matches[1];
+      
+      // Validate handle before processing
+      if (!isValidHandle($user, $domain)) {
+        return $matches[0]; // Return original if invalid
+      }
+      
+      $displayText = isset($config['displayUsername']) && $config['displayUsername'] 
+        ? '@' . $user 
+        : '@' . $user . '@' . $domain;
+        
+      $safeUser = sanitizeHandleInput($user);
+      $safeDomain = sanitizeHandleInput($domain);
+      $safeDisplayText = sanitizeHandleInput($displayText);
+      
+      return '<a href="' . htmlspecialchars($config['urlPrefix'] . $user . ($config['urlSuffix'] ?? ''), ENT_QUOTES, 'UTF-8') . '" ' .
+             'title="@' . $safeUser . '\'s profile on ' . $safeDomain . '" ' .
+             'class="handle-link ' . htmlspecialchars($config['class'], ENT_QUOTES, 'UTF-8') . '">' . 
+             $safeDisplayText . '</a>';
+    }, $text);
+  }
+  
+  // Generic processing for Fediverse instances - with Unicode support
+  $text = preg_replace_callback(
+    '/@([\p{L}\p{N}_]+)@([\p{L}\p{N}.\-]+)/u',
+    function($matches) {
+      $user = $matches[1];
+      $instance = $matches[2];
+      
+      // Validate handle before processing
+      if (!isValidHandle($user, $instance)) {
+        return $matches[0]; // Return original if invalid
+      }
+      
+      return createGenericFediverseLink($user, $instance);
+    },
     $text
   );
   
@@ -89,6 +185,19 @@ function transformHandles(string $text): string {
 }
 
 function processHandleText(string $text): string {
+  // Early performance checks
+  if (empty($text) || strlen($text) > 100000) {
+    if (strlen($text) > 100000) {
+      error_log("Handle plugin: Text too large (" . strlen($text) . " chars), skipping processing");
+    }
+    return $text;
+  }
+  
+  // Performance optimization: only process if text contains @ symbols
+  if (strpos($text, '@') === false) {
+    return $text;
+  }
+  
   $protected = [];
   
   // Protect code blocks
@@ -188,13 +297,13 @@ return [
         $instance = $tag->attr('instance');
         
         if (!$user || !$instance) {
-          // If the format is @user@instance in the content
+          // If the format is @user@instance in the content - with Unicode support
           $content = $tag->value;
-          if (preg_match('/@([a-zA-Z0-9_.-]+)@([a-zA-Z0-9.\-]+)/', $content, $matches)) {
+          if (preg_match('/@([\p{L}\p{N}_.-]+)@([\p{L}\p{N}.\-]+)/u', $content, $matches)) {
             $user = $matches[1];
             $instance = $matches[2];
           } else {
-            return $content;
+            return htmlspecialchars($content, ENT_QUOTES, 'UTF-8');
           }
         }
         
