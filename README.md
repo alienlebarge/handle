@@ -166,6 +166,27 @@ The plugin works in several ways:
     'class' => 'mastodon-link',
     'displayUsername' => true,
     'name' => 'Mastodon Social'
+  ],
+  'custom-platform.com' => [
+    'enabled' => true,
+    'urlPrefix' => 'https://custom-platform.com/users/',
+    'urlSuffix' => '/profile',
+    'class' => 'custom-platform-link',
+    'displayUsername' => false, // Show @username@instance
+    'name' => 'Custom Platform'
   ]
 ]
 ```
+
+**Service Configuration Options:**
+- **`enabled`** (bool): Enable/disable this service
+- **`urlPrefix`** (string, required): Base URL for user profiles  
+- **`urlSuffix`** (string): Optional suffix added to URLs
+- **`class`** (string, required): CSS class for styling links
+- **`displayUsername`** (bool): Show only `@username` (true) or `@username@instance` (false)
+- **`name`** (string): Human-readable service name for documentation
+
+**Validation Rules:**
+- URL Format: Must be valid HTTP/HTTPS URLs
+- CSS Classes: Must follow CSS naming conventions (`[a-zA-Z][a-zA-Z0-9\-_]*`)
+- Required Fields: `urlPrefix` and `class` are mandatory
